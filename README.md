@@ -1,75 +1,70 @@
-# Nuxt Minimal Starter
+# 3D Figurine Creator 🧩
 
-Look at the [Nuxt documentation](https://nuxt.com/docs/getting-started/introduction) to learn more.
+![Status](https://img.shields.io/badge/status-WIP-yellow)
+![Nuxt](https://img.shields.io/badge/Nuxt-3-00DC82?logo=nuxt.js)
+![Three.js](https://img.shields.io/badge/Three.js-0.175-black?logo=three.js)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript)
 
-## Setup
+A browser-based 3D figurine builder where you can customize and visualize your own figures in real time.
 
-Make sure to install dependencies:
+## Features
+
+- 🎨 **Real-time 3D preview** — See your figurine update live as you make changes
+- 🧱 **Modular customization** — Swap and configure parts to build your unique figure
+- 🗂️ **State management** — Figurine state handled with Pinia for a reactive experience
+- 🖥️ **Web-first** — Runs entirely in the browser, no install needed
+
+## Tech Stack
+
+- **Framework** — Nuxt 3
+- **3D Rendering** — Three.js
+- **State** — Pinia
+- **Styling** — Tailwind CSS
+- **Language** — TypeScript
+
+## Project Structure
+
+```
+3d-figurine-creator/
+├── assets/css/       # Global styles
+├── components/       # Vue components
+├── composables/      # Reusable logic
+├── pages/            # App routes
+├── public/           # Static assets
+├── server/           # Server-side logic
+└── stores/           # Pinia stores
+```
+
+## Getting Started
+
+### Prerequisites
+
+- Node.js 18+
+- npm
+
+### Installation
 
 ```bash
-# npm
+# Clone the repo
+git clone https://github.com/SebastianPellitero/3d-figurine-creator.git
+cd 3d-figurine-creator
+
+# Install dependencies
 npm install
 
-# pnpm
-pnpm install
-
-# yarn
-yarn install
-
-# bun
-bun install
-```
-
-## Development Server
-
-Start the development server on `http://localhost:3000`:
-
-```bash
-# npm
+# Start the dev server
 npm run dev
-
-# pnpm
-pnpm dev
-
-# yarn
-yarn dev
-
-# bun
-bun run dev
 ```
 
-## Production
+App will be running at `http://localhost:3000`.
 
-Build the application for production:
+### Build for Production
 
 ```bash
-# npm
 npm run build
-
-# pnpm
-pnpm build
-
-# yarn
-yarn build
-
-# bun
-bun run build
-```
-
-Locally preview production build:
-
-```bash
-# npm
 npm run preview
-
-# pnpm
-pnpm preview
-
-# yarn
-yarn preview
-
-# bun
-bun run preview
 ```
 
-Check out the [deployment documentation](https://nuxt.com/docs/getting-started/deployment) for more information.
+## License
+
+MIT — see [LICENSE](./LICENSE)
