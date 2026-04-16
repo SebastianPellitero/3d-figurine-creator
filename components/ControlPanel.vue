@@ -1,60 +1,10 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useFigureStore } from '~/stores/figure'
-import type { HatOption, TopOption, BottomOption, ItemOption, BackOption } from '~/stores/figure'
 
 const store = useFigureStore()
 
-const open = ref({ head: true, top: true, bottom: true, hands: true, back: false, colors: true })
-
-const hatOptions: { value: HatOption; label: string; emoji: string }[] = [
-  { value: 'none',         label: 'None',       emoji: '∅'  },
-  { value: 'open_helmet',  label: 'Open Helm',  emoji: '⛑' },
-  { value: 'full_helmet',  label: 'Full Helm',  emoji: '🪖' },
-  { value: 'horned_helmet',label: 'Horned',     emoji: '🐂' },
-  { value: 'wizard_hat',   label: 'Wizard Hat', emoji: '🧙' },
-  { value: 'hood',         label: 'Hood',       emoji: '🧥' },
-  { value: 'crown',        label: 'Crown',      emoji: '👑' },
-  { value: 'circlet',      label: 'Circlet',    emoji: '💍' },
-]
-
-const topOptions: { value: TopOption; label: string; emoji: string }[] = [
-  { value: 'none',            label: 'None',           emoji: '∅'  },
-  { value: 'plate_armor',     label: 'Plate Armor',    emoji: '🛡' },
-  { value: 'chainmail',       label: 'Chainmail',      emoji: '⛓' },
-  { value: 'leather_armor',   label: 'Leather',        emoji: '🟫' },
-  { value: 'robe',            label: 'Robe',           emoji: '👘' },
-  { value: 'studded_leather', label: 'Studded',        emoji: '🔩' },
-]
-
-const bottomOptions: { value: BottomOption; label: string; emoji: string }[] = [
-  { value: 'none',          label: 'None',         emoji: '∅'  },
-  { value: 'plate_legs',    label: 'Plate Legs',   emoji: '🦵' },
-  { value: 'chainmail_legs',label: 'Chain Legs',   emoji: '⛓' },
-  { value: 'leather_pants', label: 'Leather',      emoji: '🟫' },
-  { value: 'robe_bottom',   label: 'Robe Skirt',   emoji: '👘' },
-]
-
-const itemOptions: { value: ItemOption; label: string; emoji: string }[] = [
-  { value: 'none',        label: 'None',       emoji: '∅'  },
-  { value: 'longsword',   label: 'Longsword',  emoji: '⚔️' },
-  { value: 'greatsword',  label: 'Greatsword', emoji: '🗡' },
-  { value: 'dagger',      label: 'Dagger',     emoji: '🔪' },
-  { value: 'battleaxe',   label: 'Battleaxe',  emoji: '🪓' },
-  { value: 'warhammer',   label: 'Warhammer',  emoji: '🔨' },
-  { value: 'spear',       label: 'Spear',      emoji: '🔱' },
-  { value: 'mace',        label: 'Mace',       emoji: '💥' },
-  { value: 'round_shield',label: 'Round Shield',emoji: '🛡' },
-  { value: 'kite_shield', label: 'Kite Shield',emoji: '🛡' },
-  { value: 'staff',       label: 'Staff',      emoji: '🪄' },
-  { value: 'torch',       label: 'Torch',      emoji: '🔦' },
-]
-
-const backOptions: { value: BackOption; label: string; emoji: string }[] = [
-  { value: 'none',   label: 'None',   emoji: '∅'  },
-  { value: 'cloak',  label: 'Cloak',  emoji: '🧣' },
-  { value: 'quiver', label: 'Quiver', emoji: '🏹' },
-]
+const open = ref({ head: true, top: true, bottom: true, hands: true, back: true, colors: true })
 </script>
 
 <template>
@@ -62,7 +12,7 @@ const backOptions: { value: BackOption; label: string; emoji: string }[] = [
 
     <!-- Brand -->
     <div class="px-5 py-4 border-b border-gray-800">
-      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest">D&D Figure Builder</h2>
+      <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-widest">Figure Builder</h2>
       <p class="text-xs text-gray-600 mt-0.5">32 mm Heroic Scale</p>
     </div>
 
@@ -75,13 +25,8 @@ const backOptions: { value: BackOption; label: string; emoji: string }[] = [
           <chevron :open="open.head" />
         </button>
         <transition name="collapse">
-          <div v-if="open.head" class="grid grid-cols-2 gap-1.5 pb-3">
-            <button v-for="opt in hatOptions" :key="opt.value"
-              class="option-btn" :class="{ 'option-btn--active': store.hat === opt.value }"
-              @click="store.hat = opt.value">
-              <span class="text-lg">{{ opt.emoji }}</span>
-              <span class="text-xs mt-0.5 leading-tight">{{ opt.label }}</span>
-            </button>
+          <div v-if="open.head" class="pb-3">
+            <slot-row slot-key="hat" label="Head" :store="store" />
           </div>
         </transition>
       </section>
@@ -95,13 +40,8 @@ const backOptions: { value: BackOption; label: string; emoji: string }[] = [
           <chevron :open="open.top" />
         </button>
         <transition name="collapse">
-          <div v-if="open.top" class="grid grid-cols-2 gap-1.5 pb-3">
-            <button v-for="opt in topOptions" :key="opt.value"
-              class="option-btn" :class="{ 'option-btn--active': store.top === opt.value }"
-              @click="store.top = opt.value">
-              <span class="text-lg">{{ opt.emoji }}</span>
-              <span class="text-xs mt-0.5 leading-tight">{{ opt.label }}</span>
-            </button>
+          <div v-if="open.top" class="pb-3">
+            <slot-row slot-key="top" label="Upper Body" :store="store" />
           </div>
         </transition>
       </section>
@@ -115,13 +55,8 @@ const backOptions: { value: BackOption; label: string; emoji: string }[] = [
           <chevron :open="open.bottom" />
         </button>
         <transition name="collapse">
-          <div v-if="open.bottom" class="grid grid-cols-2 gap-1.5 pb-3">
-            <button v-for="opt in bottomOptions" :key="opt.value"
-              class="option-btn" :class="{ 'option-btn--active': store.bottom === opt.value }"
-              @click="store.bottom = opt.value">
-              <span class="text-lg">{{ opt.emoji }}</span>
-              <span class="text-xs mt-0.5 leading-tight">{{ opt.label }}</span>
-            </button>
+          <div v-if="open.bottom" class="pb-3">
+            <slot-row slot-key="bottom" label="Lower Body" :store="store" />
           </div>
         </transition>
       </section>
@@ -135,49 +70,26 @@ const backOptions: { value: BackOption; label: string; emoji: string }[] = [
           <chevron :open="open.hands" />
         </button>
         <transition name="collapse">
-          <div v-if="open.hands" class="space-y-3 pb-3">
-            <div>
-              <p class="text-xs text-gray-500 mb-1.5 font-medium uppercase tracking-wider">Left Hand</p>
-              <div class="grid grid-cols-3 gap-1">
-                <button v-for="opt in itemOptions" :key="opt.value"
-                  class="option-btn" :class="{ 'option-btn--active': store.leftHand === opt.value }"
-                  @click="store.leftHand = opt.value">
-                  <span class="text-base">{{ opt.emoji }}</span>
-                  <span class="text-[10px] mt-0.5 leading-tight">{{ opt.label }}</span>
-                </button>
-              </div>
-            </div>
-            <div>
-              <p class="text-xs text-gray-500 mb-1.5 font-medium uppercase tracking-wider">Right Hand</p>
-              <div class="grid grid-cols-3 gap-1">
-                <button v-for="opt in itemOptions" :key="opt.value"
-                  class="option-btn" :class="{ 'option-btn--active': store.rightHand === opt.value }"
-                  @click="store.rightHand = opt.value">
-                  <span class="text-base">{{ opt.emoji }}</span>
-                  <span class="text-[10px] mt-0.5 leading-tight">{{ opt.label }}</span>
-                </button>
-              </div>
-            </div>
+          <div v-if="open.hands" class="space-y-2 pb-3">
+            <p class="text-xs text-gray-500 px-1 font-medium uppercase tracking-wider">Left Hand</p>
+            <slot-row slot-key="leftHand" label="Left Hand" :store="store" />
+            <p class="text-xs text-gray-500 px-1 font-medium uppercase tracking-wider mt-2">Right Hand</p>
+            <slot-row slot-key="rightHand" label="Right Hand" :store="store" />
           </div>
         </transition>
       </section>
 
       <div class="border-t border-gray-800" />
 
-      <!-- ── Back Items ────────────────────────────────────────────────────────── -->
+      <!-- ── Back ─────────────────────────────────────────────────────────────── -->
       <section>
         <button class="section-toggle" @click="open.back = !open.back">
           <span class="flex items-center gap-2"><span>🧣</span> Back</span>
           <chevron :open="open.back" />
         </button>
         <transition name="collapse">
-          <div v-if="open.back" class="grid grid-cols-3 gap-1.5 pb-3">
-            <button v-for="opt in backOptions" :key="opt.value"
-              class="option-btn" :class="{ 'option-btn--active': store.back === opt.value }"
-              @click="store.back = opt.value">
-              <span class="text-lg">{{ opt.emoji }}</span>
-              <span class="text-xs mt-0.5 leading-tight">{{ opt.label }}</span>
-            </button>
+          <div v-if="open.back" class="pb-3">
+            <slot-row slot-key="back" label="Back" :store="store" />
           </div>
         </transition>
       </section>
@@ -201,19 +113,11 @@ const backOptions: { value: BackOption; label: string; emoji: string }[] = [
               </div>
             </label>
             <label class="color-row">
-              <span class="text-xs text-gray-400">Clothing / Armor</span>
+              <span class="text-xs text-gray-400">Accessory Color</span>
               <div class="flex items-center gap-2">
                 <span class="w-6 h-6 rounded-full border border-gray-600" :style="{ background: store.clothingColor }" />
                 <input type="color" :value="store.clothingColor" class="color-input"
                   @input="store.clothingColor = ($event.target as HTMLInputElement).value" />
-              </div>
-            </label>
-            <label class="color-row">
-              <span class="text-xs text-gray-400">Accessories / Metal</span>
-              <div class="flex items-center gap-2">
-                <span class="w-6 h-6 rounded-full border border-gray-600" :style="{ background: store.accessoryColor }" />
-                <input type="color" :value="store.accessoryColor" class="color-input"
-                  @input="store.accessoryColor = ($event.target as HTMLInputElement).value" />
               </div>
             </label>
           </div>
