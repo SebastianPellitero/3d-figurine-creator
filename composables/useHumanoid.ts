@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
-import type { FigureState, CustomAccessory, PrimitiveParams } from '~/stores/figure'
+import type { FigureState, CustomAccessory, PrimitiveParams, PoseData } from '~/stores/figure'
 
 // ─── Scale: 1 unit = 1 mm ──────────────────────────────────────────────────────
 
@@ -36,20 +36,22 @@ export function b64ToBuffer(b64: string): ArrayBuffer {
 
 // ─── Render a saved custom accessory into a group ─────────────────────────────
 function renderCustomAccessory(acc: CustomAccessory, group: THREE.Group) {
-  let geometry: THREE.BufferGeometry
-  if (acc.geometry.kind === 'primitive') {
-    geometry = makeGeometry(acc.geometry.params)
-  } else {
-    geometry = new STLLoader().parse(b64ToBuffer(acc.geometry.dataB64))
-    geometry.computeVertexNormals()
+  for (const part of acc.parts) {
+    let geometry: THREE.BufferGeometry
+    if (part.geometry.kind === 'primitive') {
+      geometry = makeGeometry(part.geometry.params)
+    } else {
+      geometry = new STLLoader().parse(b64ToBuffer(part.geometry.dataB64))
+      geometry.computeVertexNormals()
+    }
+    const mesh = new THREE.Mesh(geometry, mat(part.color, 0.6, 0.1))
+    mesh.position.fromArray(part.position)
+    mesh.rotation.set(part.rotation[0], part.rotation[1], part.rotation[2])
+    mesh.scale.fromArray(part.scale)
+    mesh.castShadow = true
+    mesh.receiveShadow = true
+    group.add(mesh)
   }
-  const mesh = new THREE.Mesh(geometry, mat(acc.color, 0.6, 0.1))
-  mesh.position.fromArray(acc.position)
-  mesh.rotation.set(acc.rotation[0], acc.rotation[1], acc.rotation[2])
-  mesh.scale.fromArray(acc.scale)
-  mesh.castShadow = true
-  mesh.receiveShadow = true
-  group.add(mesh)
 }
 
 // ─── Fallback procedural body (shown if Xbot.glb fails to load) ──────────────
@@ -156,6 +158,7 @@ export function useHumanoid(canvas: HTMLCanvasElement) {
   const accessoryGroup = new THREE.Group()
   const backGroup      = new THREE.Group()
   figureGroup.add(bodyGroup, backGroup, accessoryGroup)
+  figureGroup.position.y = 1.5   // lift onto platform top surface
   scene.add(figureGroup)
 
   // ── Shared skin material (applied to all Xbot meshes) ─────────────────────
@@ -163,6 +166,19 @@ export function useHumanoid(canvas: HTMLCanvasElement) {
 
   // ── Last applied state — replayed after async model load ──────────────────
   let lastState: FigureState | null = null
+  // Stored during load so updateFigure can reset without recomputing in world space
+  let modelBaseY = 0
+
+  // ── Apply pose bone rotations + ground offset to a loaded model ───────────
+  function applyPoseToModel(model: THREE.Group, pose: PoseData, groundOffset: number) {
+    if (!pose || Object.keys(pose).length === 0) return
+    model.traverse((obj) => {
+      if (!(obj instanceof THREE.Bone)) return
+      const rot = pose[obj.name]
+      if (rot) obj.rotation.set(rot[0], rot[1], rot[2])
+    })
+    model.position.y += groundOffset
+  }
 
   // ── Load Xbot.glb ──────────────────────────────────────────────────────────
   const loader = new GLTFLoader()
@@ -175,9 +191,10 @@ export function useHumanoid(canvas: HTMLCanvasElement) {
       const box0 = new THREE.Box3().setFromObject(model)
       model.scale.setScalar(38 / (box0.max.y - box0.min.y))
 
-      // Ground feet at y = 0
+      // Ground feet at y = 0 (local to figureGroup; figureGroup lifts to platform)
       const box1 = new THREE.Box3().setFromObject(model)
-      model.position.y = -box1.min.y
+      modelBaseY = -box1.min.y
+      model.position.y = modelBaseY
 
       // Replace all mesh materials with skin color
       model.traverse((child) => {
@@ -188,7 +205,10 @@ export function useHumanoid(canvas: HTMLCanvasElement) {
       })
 
       bodyGroup.add(model)
-      if (lastState) updateFigure(lastState)
+      if (lastState) {
+        applyPoseToModel(model, lastState.pose, lastState.poseGroundOffset)
+        updateFigure(lastState)
+      }
     },
     undefined,
     () => {
@@ -203,6 +223,14 @@ export function useHumanoid(canvas: HTMLCanvasElement) {
     bodyMat.color.set(state.bodyColor)
     accessoryGroup.clear()
     backGroup.clear()
+
+    // Re-apply pose whenever state updates (handles pose changes after model load)
+    if (bodyGroup.children.length > 0) {
+      const model = bodyGroup.children[0] as THREE.Group
+      model.traverse((obj) => { if (obj instanceof THREE.Bone) obj.rotation.set(0, 0, 0) })
+      model.position.y = modelBaseY   // restore local T-pose baseline (not world space)
+      applyPoseToModel(model, state.pose, state.poseGroundOffset)
+    }
 
     const slots = ['hat', 'top', 'bottom', 'leftHand', 'rightHand', 'back'] as const
     for (const slot of slots) {

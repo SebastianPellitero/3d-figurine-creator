@@ -17,19 +17,27 @@ export interface PrimitiveParams {
   segments?: number
 }
 
-// ─── Custom accessory ─────────────────────────────────────────────────────────
-export interface CustomAccessory {
-  id: string               // e.g. 'hat_1713000000000'
-  name: string
-  slot: SlotKey
+// ─── Accessory part (one mesh within an accessory) ───────────────────────────
+export interface AccessoryPart {
   geometry:
     | { kind: 'primitive'; params: PrimitiveParams }
-    | { kind: 'stl'; dataB64: string }  // base64 binary STL
-  color: string            // hex
+    | { kind: 'stl'; dataB64: string }
+  color: string
   position: [number, number, number]
   rotation: [number, number, number]   // Euler XYZ radians
   scale:    [number, number, number]
 }
+
+// ─── Custom accessory (one or more parts) ─────────────────────────────────────
+export interface CustomAccessory {
+  id: string               // e.g. 'hat_1713000000000'
+  name: string
+  slot: SlotKey
+  parts: AccessoryPart[]
+}
+
+// ─── Pose data ────────────────────────────────────────────────────────────────
+export type PoseData = Record<string, [number, number, number]>  // boneName → [rx, ry, rz]
 
 // ─── Figure state ─────────────────────────────────────────────────────────────
 export interface FigureState {
@@ -43,6 +51,8 @@ export interface FigureState {
   clothingColor:  string
   accessoryColor: string
   customAccessories: Record<string, CustomAccessory>
+  pose:            PoseData
+  poseGroundOffset: number
 }
 
 // ─── Store ────────────────────────────────────────────────────────────────────
@@ -58,6 +68,8 @@ export const useFigureStore = defineStore('figure', {
     clothingColor:  '#7a7a8a',
     accessoryColor: '#b8b8c8',
     customAccessories: {},
+    pose: {},
+    poseGroundOffset: 0,
   }),
 
   actions: {
@@ -70,6 +82,16 @@ export const useFigureStore = defineStore('figure', {
       const acc = this.customAccessories[id]
       if (acc && this[acc.slot] === id) this[acc.slot] = 'none'
       delete this.customAccessories[id]
+    },
+
+    savePose(pose: PoseData, groundOffset: number) {
+      this.pose = pose
+      this.poseGroundOffset = groundOffset
+    },
+
+    resetPose() {
+      this.pose = {}
+      this.poseGroundOffset = 0
     },
   },
 })

@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, reactive, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useFigureStore } from '~/stores/figure'
-import { useAccessoryEditor, bufferToB64 } from '~/composables/useAccessoryEditor'
+import { useAccessoryEditor } from '~/composables/useAccessoryEditor'
 import type { SlotKey, PrimitiveType, PrimitiveParams, CustomAccessory } from '~/stores/figure'
 
 useHead({ title: 'Accessory Workshop — 3D Figure Builder' })
@@ -25,9 +25,7 @@ const slotOptions: { key: SlotKey; label: string }[] = [
   { key: 'back',      label: 'Back' },
 ]
 
-const selectedSlot = ref<SlotKey>(
-  (route.query.slot as SlotKey) ?? 'hat'
-)
+const selectedSlot = ref<SlotKey>((route.query.slot as SlotKey) ?? 'hat')
 
 type SourceType = 'primitive' | 'stl'
 const sourceType = ref<SourceType>('primitive')
@@ -38,21 +36,23 @@ const accessoryColor = ref('#7a7a8a')
 // Primitive params
 const primType = ref<PrimitiveType>('sphere')
 const primParams = reactive({
-  radius: 5,
-  radiusTop: 3,
-  radiusBottom: 3,
-  height: 10,
-  width: 8,
-  depth: 8,
-  segments: 24,
+  radius: 5, radiusTop: 3, radiusBottom: 3,
+  height: 10, width: 8, depth: 8, segments: 24,
 })
 
-// STL upload
+// STL upload — keep one buffer per mesh (for getAllParts serialisation)
 const stlBuffer = ref<ArrayBuffer | null>(null)
 const stlFileName = ref('')
 
-// Feedback
-const previewActive = ref(false)
+// ── Parts list (mirrors meshes[] in the editor) ───────────────────────────────
+interface PartEntry {
+  label: string   // e.g. 'Sphere', 'Cylinder', 'STL'
+  color: string
+}
+const partsList = ref<PartEntry[]>([])
+const selectedPartIndex = ref(-1)
+
+const hasParts = computed(() => partsList.value.length > 0)
 const saveError = ref('')
 
 // ── Mount ─────────────────────────────────────────────────────────────────────
@@ -61,49 +61,39 @@ onMounted(() => {
   editor.value = useAccessoryEditor(canvasEl.value)
 
   const ro = new ResizeObserver(entries => {
-    const entry = entries[0]
-    editor.value?.handleResize(entry.contentRect.width, entry.contentRect.height)
+    editor.value?.handleResize(entries[0].contentRect.width, entries[0].contentRect.height)
   })
   ro.observe(canvasEl.value.parentElement!)
 
-  onBeforeUnmount(() => {
-    ro.disconnect()
-    editor.value?.dispose()
-  })
+  onBeforeUnmount(() => { ro.disconnect(); editor.value?.dispose() })
 })
 
 // ── Transform mode watcher ────────────────────────────────────────────────────
 watch(transformMode, (m) => editor.value?.setMode(m))
 
-// ── Color watcher ─────────────────────────────────────────────────────────────
+// ── Color watcher — updates only the currently selected part ─────────────────
 watch(accessoryColor, (c) => {
-  if (previewActive.value) editor.value?.updateColor(c)
+  if (selectedPartIndex.value < 0) return
+  editor.value?.updateSelectedColor(c)
+  partsList.value[selectedPartIndex.value].color = c
 })
 
-// ── Actions ───────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function buildPrimitiveParams(): PrimitiveParams {
   const p: PrimitiveParams = { type: primType.value, segments: primParams.segments }
-  if (primType.value === 'sphere') {
-    p.radius = primParams.radius
-  } else if (primType.value === 'cylinder') {
-    p.radiusTop    = primParams.radiusTop
-    p.radiusBottom = primParams.radiusBottom
-    p.height       = primParams.height
-  } else if (primType.value === 'box') {
-    p.width  = primParams.width
-    p.height = primParams.height
-    p.depth  = primParams.depth
-  } else if (primType.value === 'cone') {
-    p.radiusBottom = primParams.radiusBottom
-    p.height       = primParams.height
-  }
+  if (primType.value === 'sphere')        p.radius = primParams.radius
+  else if (primType.value === 'cylinder') { p.radiusTop = primParams.radiusTop; p.radiusBottom = primParams.radiusBottom; p.height = primParams.height }
+  else if (primType.value === 'box')      { p.width = primParams.width; p.height = primParams.height; p.depth = primParams.depth }
+  else if (primType.value === 'cone')     { p.radiusBottom = primParams.radiusBottom; p.height = primParams.height }
   return p
 }
 
-function handlePreview() {
+// ── Add Part ──────────────────────────────────────────────────────────────────
+function handleAddPrimitive() {
   if (!editor.value) return
-  editor.value.previewPrimitive(buildPrimitiveParams(), accessoryColor.value, selectedSlot.value)
-  previewActive.value = true
+  editor.value.addPrimitive(buildPrimitiveParams(), accessoryColor.value, selectedSlot.value)
+  partsList.value.push({ label: primType.value[0].toUpperCase() + primType.value.slice(1), color: accessoryColor.value })
+  selectedPartIndex.value = partsList.value.length - 1
   saveError.value = ''
 }
 
@@ -112,50 +102,56 @@ function handleFileChange(e: Event) {
   if (!file) return
   stlFileName.value = file.name
   const reader = new FileReader()
-  reader.onload = (ev) => {
-    stlBuffer.value = ev.target!.result as ArrayBuffer
-  }
+  reader.onload = (ev) => { stlBuffer.value = ev.target!.result as ArrayBuffer }
   reader.readAsArrayBuffer(file)
 }
 
-function handleLoadSTL() {
+function handleAddSTL() {
   if (!editor.value || !stlBuffer.value) return
-  editor.value.loadSTL(stlBuffer.value, accessoryColor.value, selectedSlot.value)
-  previewActive.value = true
+  editor.value.addSTL(stlBuffer.value, accessoryColor.value, selectedSlot.value)
+  partsList.value.push({ label: stlFileName.value || 'STL', color: accessoryColor.value })
+  selectedPartIndex.value = partsList.value.length - 1
   saveError.value = ''
+  // Reset file input so same file can be re-added
+  stlBuffer.value = null
+  stlFileName.value = ''
 }
 
+// ── Select / Remove part ──────────────────────────────────────────────────────
+function handleSelectPart(i: number) {
+  editor.value?.selectPart(i)
+  selectedPartIndex.value = i
+  accessoryColor.value = partsList.value[i].color
+}
+
+function handleRemovePart(i: number) {
+  editor.value?.removePart(i)
+  partsList.value.splice(i, 1)
+  if (partsList.value.length === 0) {
+    selectedPartIndex.value = -1
+  } else {
+    selectedPartIndex.value = Math.min(i, partsList.value.length - 1)
+    editor.value?.selectPart(selectedPartIndex.value)
+    accessoryColor.value = partsList.value[selectedPartIndex.value].color
+  }
+}
+
+// ── Save ──────────────────────────────────────────────────────────────────────
 function handleSave() {
-  if (!editor.value || !previewActive.value) {
-    saveError.value = 'Preview an accessory first.'
+  if (!editor.value || !hasParts.value) {
+    saveError.value = 'Add at least one part first.'
     return
   }
   const name = accessoryName.value.trim()
-  if (!name) {
-    saveError.value = 'Enter a name for the accessory.'
-    return
-  }
+  if (!name) { saveError.value = 'Enter a name for the accessory.'; return }
 
-  const { position, rotation, scale } = editor.value.getTransform()
-  const id = `${selectedSlot.value}_${Date.now()}`
-
-  let geometry: CustomAccessory['geometry']
-  if (sourceType.value === 'primitive') {
-    geometry = { kind: 'primitive', params: buildPrimitiveParams() }
-  } else {
-    if (!stlBuffer.value) { saveError.value = 'No STL loaded.'; return }
-    geometry = { kind: 'stl', dataB64: bufferToB64(stlBuffer.value) }
-  }
+  const parts = editor.value.getAllParts()
 
   const acc: CustomAccessory = {
-    id,
+    id: `${selectedSlot.value}_${Date.now()}`,
     name,
     slot: selectedSlot.value,
-    geometry,
-    color: accessoryColor.value,
-    position,
-    rotation,
-    scale,
+    parts,
   }
 
   store.saveAccessory(acc)
@@ -260,21 +256,19 @@ function handleSave() {
             </div>
           </div>
 
-          <button class="action-btn mt-3" @click="handlePreview">Preview</button>
+          <button class="action-btn mt-3" @click="handleAddPrimitive">Add Part</button>
         </section>
 
-        <!-- ④ STL upload -->
+        <!-- ③ STL upload -->
         <section v-else class="panel-section">
           <h3 class="panel-title">③ Upload STL</h3>
 
           <label class="block">
             <span class="text-xs text-gray-400 block mb-1">STL File</span>
-            <div class="flex items-center gap-2">
-              <label class="action-btn cursor-pointer text-center flex-1">
-                Choose File
-                <input type="file" accept=".stl" class="hidden" @change="handleFileChange" />
-              </label>
-            </div>
+            <label class="action-btn cursor-pointer text-center block">
+              Choose File
+              <input type="file" accept=".stl" class="hidden" @change="handleFileChange" />
+            </label>
             <p v-if="stlFileName" class="text-xs text-gray-400 mt-1 truncate">{{ stlFileName }}</p>
           </label>
 
@@ -286,14 +280,43 @@ function handleSave() {
             </div>
           </div>
 
-          <button class="action-btn mt-3" :disabled="!stlBuffer" @click="handleLoadSTL">Load File</button>
+          <button class="action-btn mt-3" :disabled="!stlBuffer" @click="handleAddSTL">Add Part</button>
+        </section>
+
+        <div class="border-t border-gray-800" />
+
+        <!-- ④ Parts list -->
+        <section class="panel-section">
+          <h3 class="panel-title">④ Parts <span class="normal-case font-normal text-gray-600">({{ partsList.length }})</span></h3>
+
+          <div v-if="partsList.length === 0" class="text-xs text-gray-600 italic px-1">
+            No parts added yet — configure a shape above and click Add Part.
+          </div>
+
+          <ul v-else class="space-y-1">
+            <li v-for="(part, i) in partsList" :key="i"
+              :class="['flex items-center gap-2 px-2 py-1.5 rounded-lg cursor-pointer transition-colors',
+                       selectedPartIndex === i ? 'bg-indigo-600/20 border border-indigo-500/50' : 'bg-gray-800 border border-gray-700 hover:border-gray-600']"
+              @click="handleSelectPart(i)"
+            >
+              <!-- Color dot -->
+              <span class="w-3 h-3 rounded-full shrink-0 border border-gray-600" :style="{ background: part.color }" />
+              <!-- Label -->
+              <span class="flex-1 text-xs text-gray-200 truncate">{{ part.label }}</span>
+              <!-- Remove -->
+              <button class="text-gray-600 hover:text-red-400 transition-colors text-sm leading-none shrink-0"
+                @click.stop="handleRemovePart(i)"
+                title="Remove this part"
+              >✕</button>
+            </li>
+          </ul>
         </section>
 
         <div class="border-t border-gray-800" />
 
         <!-- ⑤ Name + Save -->
         <section class="panel-section">
-          <h3 class="panel-title">④ Name &amp; Save</h3>
+          <h3 class="panel-title">⑤ Name &amp; Save</h3>
           <input
             v-model="accessoryName"
             type="text"
@@ -303,7 +326,7 @@ function handleSave() {
           <p v-if="saveError" class="text-xs text-red-400 mt-1">{{ saveError }}</p>
           <button
             class="action-btn mt-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed"
-            :disabled="!previewActive"
+            :disabled="!hasParts"
             @click="handleSave"
           >
             Save to Builder
@@ -316,17 +339,38 @@ function handleSave() {
       <main class="flex-1 relative overflow-hidden">
 
         <!-- Transform mode toolbar -->
-        <div class="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex gap-1.5 bg-gray-900/80 backdrop-blur px-3 py-2 rounded-xl border border-gray-700 shadow-lg">
-          <button v-for="m in (['translate', 'rotate', 'scale'] as const)" :key="m"
-            :class="['mode-btn', transformMode === m ? 'mode-btn--active' : '']"
-            @click="transformMode = m; editor?.setMode(m)"
-          >{{ m[0].toUpperCase() + m.slice(1) }}</button>
+        <div v-if="hasParts" class="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
+          <!-- Mode buttons -->
+          <div class="flex gap-1.5 bg-gray-900/90 backdrop-blur px-3 py-2 rounded-xl border border-gray-700 shadow-lg">
+            <button v-for="m in (['translate', 'rotate', 'scale'] as const)" :key="m"
+              :class="['mode-btn', transformMode === m ? 'mode-btn--active' : '']"
+              @click="transformMode = m; editor?.setMode(m)"
+            >{{ m[0].toUpperCase() + m.slice(1) }}</button>
+          </div>
+          <!-- Contextual hint -->
+          <div class="bg-gray-900/80 backdrop-blur px-3 py-1.5 rounded-lg border border-gray-700/60 text-xs text-gray-400 text-center shadow pointer-events-none">
+            <template v-if="transformMode === 'translate'">
+              Drag the <span class="text-red-400 font-medium">red</span> /
+              <span class="text-green-400 font-medium">green</span> /
+              <span class="text-blue-400 font-medium">blue</span> arrows to move &nbsp;·&nbsp;
+              <span class="text-gray-300">Right-click + drag</span> to orbit
+            </template>
+            <template v-else-if="transformMode === 'rotate'">
+              Drag the colored <span class="text-gray-200 font-medium">rings</span> to rotate around each axis &nbsp;·&nbsp;
+              <span class="text-gray-300">Right-click + drag</span> to orbit
+            </template>
+            <template v-else>
+              Drag the colored <span class="text-gray-200 font-medium">handles</span> to resize &nbsp;·&nbsp;
+              center cube scales uniformly &nbsp;·&nbsp;
+              <span class="text-gray-300">Right-click + drag</span> to orbit
+            </template>
+          </div>
         </div>
 
         <!-- Hint -->
-        <div v-if="!previewActive" class="absolute inset-0 flex items-center justify-center pointer-events-none">
+        <div v-if="!hasParts" class="absolute inset-0 flex items-center justify-center pointer-events-none">
           <p class="text-gray-600 text-sm text-center px-6">
-            Configure a shape in the left panel,<br>then click <strong class="text-gray-500">Preview</strong> to place it on the skeleton.
+            Configure a shape in the left panel,<br>then click <strong class="text-gray-500">Add Part</strong> to place it on the skeleton.
           </p>
         </div>
 

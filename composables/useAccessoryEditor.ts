@@ -4,16 +4,17 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import { makeGeometry } from '~/composables/useHumanoid'
-import type { PrimitiveParams, SlotKey } from '~/stores/figure'
+import type { PrimitiveParams, SlotKey, AccessoryPart } from '~/stores/figure'
 
 // Approximate default spawn positions per slot (38 mm scaled Xbot)
+// Y values include the 1.5 platform offset that figureGroup carries in the builder
 const SLOT_DEFAULTS: Record<SlotKey, [number, number, number]> = {
-  hat:       [  0, 36,  0],
-  top:       [  0, 26,  0],
-  bottom:    [  0, 13,  0],
-  leftHand:  [ -8, 15,  0],
-  rightHand: [  8, 15,  0],
-  back:      [  0, 26, -5],
+  hat:       [  0, 37.5,  0],
+  top:       [  0, 27.5,  0],
+  bottom:    [  0, 14.5,  0],
+  leftHand:  [ -8, 16.5,  0],
+  rightHand: [  8, 16.5,  0],
+  back:      [  0, 27.5, -5],
 }
 
 function mat(color: string, roughness = 0.6, metalness = 0.1): THREE.MeshStandardMaterial {
@@ -101,83 +102,122 @@ export function useAccessoryEditor(canvas: HTMLCanvasElement) {
 
   // ── Transform controls ─────────────────────────────────────────────────────
   const tc = new TransformControls(camera, renderer.domElement)
-  tc.setSize(0.75)
-  scene.add(tc as unknown as THREE.Object3D)
+  tc.setSize(1)
+  scene.add(tc.getHelper())
 
   // Disable orbit while dragging the transform gizmo
   tc.addEventListener('dragging-changed', (e: any) => {
     orbit.enabled = !e.value
   })
 
-  // ── Current accessory mesh ─────────────────────────────────────────────────
-  let currentMesh: THREE.Mesh | null = null
+  // ── Multi-part mesh state ──────────────────────────────────────────────────
+  const meshes: THREE.Mesh[] = []
+  let selectedIndex = -1
 
-  function setAccessoryMesh(mesh: THREE.Mesh) {
-    if (currentMesh) {
-      tc.detach()
-      scene.remove(currentMesh)
-      currentMesh.geometry.dispose()
-      if (Array.isArray(currentMesh.material)) currentMesh.material.forEach(m => m.dispose())
-      else currentMesh.material.dispose()
-    }
-    currentMesh = mesh
+  function spawnPosition(slot: SlotKey): [number, number, number] {
+    if (meshes.length === 0) return SLOT_DEFAULTS[slot]
+    // Place near the last part, offset slightly so they don't stack
+    const last = meshes[meshes.length - 1].position
+    return [last.x + 6, last.y, last.z]
+  }
+
+  function attachTC(index: number) {
+    if (index < 0 || index >= meshes.length) { tc.detach(); selectedIndex = -1; return }
+    tc.attach(meshes[index])
+    selectedIndex = index
+  }
+
+  function addMeshToScene(mesh: THREE.Mesh) {
     mesh.castShadow = true
     mesh.receiveShadow = true
     scene.add(mesh)
-    tc.attach(mesh)
+    meshes.push(mesh)
+    attachTC(meshes.length - 1)
   }
 
   // ── Public API ─────────────────────────────────────────────────────────────
-  function previewPrimitive(params: PrimitiveParams, color: string, slot: SlotKey) {
+  function addPrimitive(params: PrimitiveParams, color: string, slot: SlotKey) {
     const geometry = makeGeometry(params)
     const mesh = new THREE.Mesh(geometry, mat(color))
-    const [x, y, z] = SLOT_DEFAULTS[slot]
+    const [x, y, z] = spawnPosition(slot)
     mesh.position.set(x, y, z)
-    setAccessoryMesh(mesh)
+    mesh.userData.partDef = { kind: 'primitive', params }
+    addMeshToScene(mesh)
   }
 
-  function loadSTL(arrayBuffer: ArrayBuffer, color: string, slot: SlotKey) {
+  function addSTL(arrayBuffer: ArrayBuffer, color: string, slot: SlotKey) {
     const loader = new STLLoader()
     const geometry = loader.parse(arrayBuffer)
     geometry.computeVertexNormals()
-
-    // Auto-center geometry
     geometry.computeBoundingBox()
     const center = new THREE.Vector3()
     geometry.boundingBox!.getCenter(center)
     geometry.translate(-center.x, -center.y, -center.z)
 
     const mesh = new THREE.Mesh(geometry, mat(color))
-    const [x, y, z] = SLOT_DEFAULTS[slot]
+    const [x, y, z] = spawnPosition(slot)
     mesh.position.set(x, y, z)
-    setAccessoryMesh(mesh)
+    // Encode to b64 now so getAllParts can read it without any external map
+    mesh.userData.partDef = { kind: 'stl', dataB64: bufferToB64(arrayBuffer) }
+    addMeshToScene(mesh)
   }
 
-  function getTransform(): {
-    position: [number, number, number]
-    rotation: [number, number, number]
-    scale: [number, number, number]
-  } {
-    if (!currentMesh) return { position: [0, 0, 0], rotation: [0, 0, 0], scale: [1, 1, 1] }
-    const p = currentMesh.position
-    const r = currentMesh.rotation
-    const s = currentMesh.scale
-    return {
-      position: [p.x, p.y, p.z],
-      rotation: [r.x, r.y, r.z],
-      scale:    [s.x, s.y, s.z],
-    }
+  function selectPart(index: number) {
+    attachTC(index)
   }
+
+  function removePart(index: number) {
+    if (index < 0 || index >= meshes.length) return
+    if (selectedIndex === index) tc.detach()
+    const mesh = meshes[index]
+    scene.remove(mesh)
+    mesh.geometry.dispose()
+    if (Array.isArray(mesh.material)) mesh.material.forEach(m => m.dispose())
+    else mesh.material.dispose()
+    meshes.splice(index, 1)
+    // Re-select last remaining part, if any
+    if (meshes.length > 0) attachTC(Math.min(index, meshes.length - 1))
+    else selectedIndex = -1
+  }
+
+  function getAllParts(): AccessoryPart[] {
+    return meshes.map(mesh => {
+      const p = mesh.position
+      const r = mesh.rotation
+      const s = mesh.scale
+      const color = '#' + (mesh.material as THREE.MeshStandardMaterial).color.getHexString()
+      const def = mesh.userData.partDef as AccessoryPart['geometry']
+      return {
+        geometry: def,
+        color,
+        position: [p.x, p.y, p.z] as [number, number, number],
+        rotation: [r.x, r.y, r.z] as [number, number, number],
+        scale:    [s.x, s.y, s.z] as [number, number, number],
+      }
+    })
+  }
+
+  function getPartCount() { return meshes.length }
+
+  function getSelectedIndex() { return selectedIndex }
 
   function setMode(mode: 'translate' | 'rotate' | 'scale') {
     tc.setMode(mode)
   }
 
-  function updateColor(color: string) {
-    if (!currentMesh) return
-    const m = currentMesh.material as THREE.MeshStandardMaterial
+  function updateSelectedColor(color: string) {
+    if (selectedIndex < 0) return
+    const m = meshes[selectedIndex].material as THREE.MeshStandardMaterial
     m.color.set(color)
   }
+
+  // Keep old names as aliases so existing callers (color watcher) still compile
+  /** @deprecated use addPrimitive */
+  const previewPrimitive = addPrimitive
+  /** @deprecated use addSTL */
+  const loadSTL = addSTL
+  /** @deprecated use updateSelectedColor */
+  const updateColor = updateSelectedColor
 
   // ── Load Xbot skeleton ─────────────────────────────────────────────────────
   const loader = new GLTFLoader()
@@ -186,7 +226,7 @@ export function useAccessoryEditor(canvas: HTMLCanvasElement) {
     const box0 = new THREE.Box3().setFromObject(model)
     model.scale.setScalar(38 / (box0.max.y - box0.min.y))
     const box1 = new THREE.Box3().setFromObject(model)
-    model.position.y = -box1.min.y
+    model.position.y = -box1.min.y + 1.5   // match platform height in builder
 
     model.traverse((child) => {
       if (!(child instanceof THREE.Mesh)) return
@@ -234,5 +274,12 @@ export function useAccessoryEditor(canvas: HTMLCanvasElement) {
     })
   }
 
-  return { previewPrimitive, loadSTL, getTransform, setMode, updateColor, handleResize, dispose }
+  return {
+    addPrimitive, addSTL, selectPart, removePart, getAllParts,
+    getPartCount, getSelectedIndex,
+    setMode, updateSelectedColor,
+    handleResize, dispose,
+    // legacy aliases kept for any remaining callers
+    previewPrimitive, loadSTL, updateColor,
+  }
 }
